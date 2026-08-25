@@ -118,6 +118,14 @@ python extract_mmsvg.py --raw_root $ROOT/train_data/raw --out_dir $ROOT/train_da
   `{"id": "...", "image": "images/icon/00001/<id>.png", "caption": "<vector> An illustration of a black-outlined battery icon ...", "detail": "...", "src": "icon"}`
   (image 경로는 manifest 디렉토리 기준 상대경로 → `dataset.py`가 해석, 서버 간 이동 가능)
 - 디스크: 이미지 11GB. 32 프로세스로 약 10~15분.
+- **정확히 같은 30만 장을 재현하려면** (다른 서버에서 SD3.5 등을 같은 데이터로 학습할 때): seed 재현 대신 저장소에 포함된
+  `data/dataset_manifest_compact.json.gz`(각 항목의 원본 parquet 파일 + 행 번호 30만 개, ~10MB)로 렌더하세요.
+  ```bash
+  python extract_mmsvg.py --raw_root $ROOT/train_data/raw --out_dir $ROOT/train_data \
+      --from_manifest $ROOT/data/dataset_manifest_compact.json.gz --resolution 1024 --workers 32 --trigger "<vector>"
+  ```
+  같은 parquet(동일 HF 리비전)만 있으면 파일명(id)·캡션·이미지가 이 서버와 동일하게 생성됩니다. 검증됨: 재계획 결과 300,000개, 표본 샤드의 id 전수 일치.
+  이 JSON에는 FID 레퍼런스의 행 인덱스(`fid_reference.*.row_indices_in_load_dataset_order`)도 들어 있습니다.
 
 ### 3.3 FID 레퍼런스 통계 (중요)
 ```bash

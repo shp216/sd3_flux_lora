@@ -13,6 +13,7 @@ Usage (inside the flux-lora container):
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import random
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -77,6 +78,28 @@ def plan_dataset(raw_root: Path, name: str, n: int, seed: int):
     return plan
 
 
+def plan_from_manifest(manifest_path: Path, raw_root: Path):
+    """Exact reproduction: read dataset_manifest(_compact).json[.gz] and return
+    the same (src, shard_path, indices) plan that produced it."""
+    opener = gzip.open if str(manifest_path).endswith(".gz") else open
+    with opener(manifest_path, "rt", encoding="utf-8") as f:
+        d = json.load(f)
+    repo = {"icon": "MMSVG-Icon", "illustration": "MMSVG-Illustration", "illu": "MMSVG-Illustration"}
+    by_shard: dict[tuple[str, str], list[int]] = {}
+    for it in d["items"]:
+        src = "icon" if it["src"] == "icon" else "illu"
+        by_shard.setdefault((src, it["source_parquet"]), []).append(int(it["source_row"]))
+    plan = []
+    for (src, shard), rows in sorted(by_shard.items()):
+        path = raw_root / repo[src] / "data" / shard
+        if not path.exists():
+            raise FileNotFoundError(f"shard listed in manifest not found: {path}")
+        plan.append((src, str(path), sorted(rows)))
+    n = sum(len(r) for _, _, r in plan)
+    print(f"[from_manifest] {n:,} items across {len(plan)} shards from {manifest_path.name}")
+    return plan
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--raw_root", type=Path, required=True)
@@ -88,15 +111,24 @@ def main():
     ap.add_argument("--trigger", default="<vector>",
                     help="prepended to every caption; '' to disable")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--from_manifest", type=Path, default=None,
+                    help="dataset_manifest(_compact).json[.gz]: render exactly the "
+                         "listed (source_parquet, source_row) items instead of sampling")
     args = ap.parse_args()
 
     jobs = []  # (src, shard_path, img_dir, indices)
-    for src, repo, n in [("icon", "MMSVG-Icon", args.n_icon),
-                         ("illu", "MMSVG-Illustration", args.n_illu)]:
-        for shard, idx in plan_dataset(args.raw_root, repo, n, args.seed):
-            shard_tag = Path(shard).stem.split("-")[1]  # e.g. 00042
-            img_dir = args.out_dir / "images" / src / shard_tag
-            jobs.append((src, shard, str(img_dir), idx))
+    if args.from_manifest:
+        plan = plan_from_manifest(args.from_manifest, args.raw_root)
+    else:
+        plan = []
+        for src, repo, n in [("icon", "MMSVG-Icon", args.n_icon),
+                             ("illu", "MMSVG-Illustration", args.n_illu)]:
+            plan += [(src, shard, idx) for shard, idx in
+                     plan_dataset(args.raw_root, repo, n, args.seed)]
+    for src, shard, idx in plan:
+        shard_tag = Path(shard).stem.split("-")[1]  # e.g. 00042
+        img_dir = args.out_dir / "images" / src / shard_tag
+        jobs.append((src, shard, str(img_dir), idx))
 
     trigger = args.trigger.strip()
     all_rows: list[dict] = []

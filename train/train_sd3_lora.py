@@ -72,6 +72,21 @@ OMNISVG8B_BASELINE = {
 }
 
 
+# ------------------------- LoRA target sets -------------------------- #
+# full-match regexes over module names (embedders / norm_out / top-level
+# proj_out are never matched). SD3.5-medium (MMDiT-X) also has `attn2`
+# (dual attention) in the first blocks -> covered by `attn2?`.
+_BLK = r"transformer_blocks\.\d+\."
+_ATTN = r"attn2?\.(to_q|to_k|to_v|to_out\.0|add_q_proj|add_k_proj|add_v_proj|to_add_out)"
+LORA_TARGETS = {
+    # diffusers examples/dreambooth/train_dreambooth_lora_sd3.py default (attention only)
+    "official": _BLK + r"attn\.(to_q|to_k|to_v|to_out\.0|add_q_proj|add_k_proj|add_v_proj|to_add_out)",
+    # kohya-style: every Linear inside the blocks (attn, attn2, FFN, AdaLN modulation)
+    "all-linear": _BLK + r"(" + _ATTN
+                  + r"|ff\.net\.(0\.proj|2)|ff_context\.net\.(0\.proj|2)|norm1\.linear|norm1_context\.linear)",
+}
+
+
 # ------------------------- text encoding (SD3) -------------------------- #
 @torch.no_grad()
 def _encode_clip(text_encoder, tokenizer, captions, device):
@@ -136,6 +151,9 @@ def parse_args():
     # LoRA
     p.add_argument("--lora_rank", type=int, default=128)
     p.add_argument("--lora_alpha", type=int, default=128)
+    p.add_argument("--lora_targets", default="all-linear", choices=sorted(LORA_TARGETS),
+                   help="'all-linear' = all Linear in blocks (kohya style); "
+                        "'official' = diffusers SD3 example default (attention only)")
 
     # flow matching (same as FLUX script / official SD3 script)
     p.add_argument("--weighting_scheme", default="logit_normal",
@@ -314,13 +332,12 @@ def main():
         transformer.enable_gradient_checkpointing()
     transformer.train()
 
-    # ---------------- LoRA (official SD3 script default targets) ---------------- #
+    # ---------------- LoRA ---------------- #
     lora_cfg = LoraConfig(
         r=args.lora_rank, lora_alpha=args.lora_alpha, init_lora_weights="gaussian",
-        target_modules=["attn.add_k_proj", "attn.add_q_proj", "attn.add_v_proj",
-                        "attn.to_add_out", "attn.to_k", "attn.to_out.0",
-                        "attn.to_q", "attn.to_v"],
+        target_modules=LORA_TARGETS[args.lora_targets],
     )
+    accel.print(f"LoRA targets: {args.lora_targets}")
     transformer.add_adapter(lora_cfg)
     lora_params = []
     for _, p in transformer.named_parameters():

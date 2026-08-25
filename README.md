@@ -176,7 +176,7 @@ eval 비용: 8 GPU 기준 300장 생성 ~6분 + metric ~1분.
 | 항목 | 값 | 비고 |
 |---|---|---|
 | 베이스 | `black-forest-labs/FLUX.1-dev` bf16, 전부 frozen | LoRA 파라미터만 fp32로 학습 |
-| LoRA 타깃 | diffusers 공식 `train_dreambooth_lora_flux.py` 기본값 그대로: `attn.to_q/k/v/to_out.0, attn.add_q/k/v_proj, attn.to_add_out, ff.net.0.proj, ff.net.2, ff_context.net.0.proj, ff_context.net.2` | rank 128: 358.6M params, rank 64: 179.3M |
+| LoRA 타깃 | **`--lora_targets all-linear`(기본)**: kohya sd-scripts / ostris ai-toolkit 기본과 동일 — double 19 + single 38 블록 안의 **모든 Linear** (attention q/k/v/out + context, FFN, single-block `proj_mlp`/`proj_out`, AdaLN modulation `norm*.linear`), 494층. 정규식 full-match라 최상위 `proj_out`/임베더/`norm_out`은 제외. `--lora_targets official` = diffusers 예제 기본(double attention+FFN, single attention만) | rank 128: all-linear 687.3M / official 358.6M params |
 | rank / alpha | 128 / 128 (rank 64 대비 우세 확인) | `init_lora_weights="gaussian"` |
 | 해상도 | 1024 | Resize(1024)→CenterCrop |
 | effective batch | **64** = per-GPU 8 × 8 GPU × accum 1 | 4 GPU면 per-GPU 16 (실측 76GB/96GB @ rank128) |
@@ -225,7 +225,7 @@ FLUX 스크립트와 데이터·eval·wandb·체크포인트 로직이 동일하
 | latent | VAE 16ch → 2×2 패킹 (B, S, 64) | VAE 16ch (B,16,H/8,W/8), 패킹 없음, `(z - shift_factor) * scaling_factor` |
 | timestep 입력 | t/1000 | t (0..1000) |
 | 학습 목표 | v = noise − x0 | `--precondition_outputs 1`(공식 기본): pred·(−σ)+noisy vs x0 |
-| LoRA 타깃 | attention + context + FFN (공식 기본) | **attention만** (공식 기본: `attn.to_q/k/v/to_out.0, attn.add_q/k/v_proj, attn.to_add_out`) |
+| LoRA 타깃 | `all-linear`(기본): 블록 내 모든 Linear, 494층 / `official`: diffusers 예제 기본 | `all-linear`(기본): 블록 내 모든 Linear — attn + **attn2(MMDiT-X dual attention)** + FFN + modulation, 385층 (rank128 260.9M) / `official`: attention만, 191층 (75.1M) |
 | eval 생성 | 수동 Euler 루프, guidance 3.5 (distilled) | `StableDiffusion3Pipeline` 호출, **true CFG guidance 7.0** (파이프라인 기본) |
 | T5 길이 | 128 | 77 (공식 기본) |
 | 체크포인트 | `flux_lora-{step}.safetensors` | `sd3_lora-{step}.safetensors` (`StableDiffusion3Pipeline.load_lora_weights` 호환) |
@@ -254,6 +254,15 @@ tmux new -d -s sd3 "docker exec flux-lora bash -c 'cd $ROOT/train && ./run_sd3.s
 FID는 흰 배경 프로토콜에서 같은 스케일·순서로 재현됩니다(검정 배경 프로토콜에서는 213/178로 불일치).
 재현 절차: `omnisvg:cu128` 이미지(transformers 4.51.3, qwen_vl_utils)에서 `/data/shp216/OmniSVG` 레포의 `inference.py --task text-to-svg --model-size 8B --save-png`,
 청크별 병렬 실행 후 `score_omnisvg.py <fid_ref_dir> <gen_dir>`.
+
+### 7.1b LoRA 적용 범위 조사 (prior work)
+| 구현 | 기본 LoRA 대상 |
+|---|---|
+| kohya sd-scripts `networks/lora_flux.py` | DoubleStreamBlock + SingleStreamBlock 내 모든 Linear (attn, img/txt MLP, single linear1/linear2, modulation) |
+| ostris ai-toolkit (FLUX 예제 config) | 제한 없음 → 블록 내 모든 Linear |
+| SimpleTuner `--flux_lora_target` | `all`=attention, `all+ffs`=attention+FFN(“objective 적응에 도움”), `mmdit`=안정적이나 느림 |
+| diffusers `train_dreambooth_lora_flux.py` | double attention+FFN, single attention q/k/v만 |
+→ 본 프로젝트 기본값은 kohya/ai-toolkit과 같은 **all-linear**. (official 타깃으로 돌린 트리거 런은 step 1,500에서 백지/단색 붕괴가 관측됨 — §7.2)
 
 ### 7.2 FLUX 학습 관찰 (rank 128, effective 64, LR 1e-4)
 - step 0 (base FLUX): fid_mean 239.0 / clip 0.322 / aesthetic 5.74 / hps 0.290 — CLIP·Aesthetic·HPS는 base부터 OmniSVG를 상회, **FID만 크게 뒤짐**(벡터 도메인 분포와의 거리).

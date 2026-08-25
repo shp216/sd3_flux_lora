@@ -133,6 +133,10 @@ def parse_args():
     # LoRA
     p.add_argument("--lora_rank", type=int, default=64)
     p.add_argument("--lora_alpha", type=int, default=64)
+    p.add_argument("--lora_targets", default="all-linear",
+                   choices=sorted(LORA_TARGETS),
+                   help="'all-linear' = kohya/ai-toolkit style (all Linear in "
+                        "blocks); 'official' = diffusers example default")
 
     # flow matching
     p.add_argument("--weighting_scheme", default="logit_normal",
@@ -194,6 +198,24 @@ OMNISVG8B_BASELINE = {
     "aesthetic_icon": 4.5961, "aesthetic_illustration": 4.5233,
     "aesthetic_mean": 4.5597,
     "hps_icon": 0.2444, "hps_illustration": 0.2214, "hps_mean": 0.2329,
+}
+
+
+# ------------------------- LoRA target sets -------------------------- #
+# Regexes are full-matched against module names, so the top-level output
+# projection `proj_out` / embedders / norm_out are never touched.
+_BLK = r"(transformer_blocks|single_transformer_blocks)\.\d+\."
+_ATTN = r"attn\.(to_q|to_k|to_v|to_out\.0|add_q_proj|add_k_proj|add_v_proj|to_add_out)"
+_FF = r"ff\.net\.(0\.proj|2)|ff_context\.net\.(0\.proj|2)"
+LORA_TARGETS = {
+    # diffusers examples/dreambooth/train_dreambooth_lora_flux.py default:
+    # double blocks attention + FFN, single blocks attention q/k/v only
+    "official": _BLK + r"(" + _ATTN + r"|" + _FF + r")",
+    # kohya sd-scripts / ostris ai-toolkit default: EVERY Linear inside the
+    # 19 double + 38 single blocks (attention, FFN, single-block MLP
+    # proj_mlp/proj_out, and AdaLN modulation linears). 494 layers.
+    "all-linear": _BLK + r"(" + _ATTN + r"|" + _FF
+                  + r"|proj_mlp|proj_out|norm1\.linear|norm1_context\.linear|norm\.linear)",
 }
 
 
@@ -436,27 +458,13 @@ def main():
     transformer.train()
 
     # ---------------- LoRA ---------------- #
-    # exactly the default target set of diffusers' official
-    # examples/dreambooth/train_dreambooth_lora_flux.py (for paper parity)
     lora_cfg = LoraConfig(
         r=args.lora_rank,
         lora_alpha=args.lora_alpha,
         init_lora_weights="gaussian",
-        target_modules=[
-            "attn.to_k",
-            "attn.to_q",
-            "attn.to_v",
-            "attn.to_out.0",
-            "attn.add_k_proj",
-            "attn.add_q_proj",
-            "attn.add_v_proj",
-            "attn.to_add_out",
-            "ff.net.0.proj",
-            "ff.net.2",
-            "ff_context.net.0.proj",
-            "ff_context.net.2",
-        ],
+        target_modules=LORA_TARGETS[args.lora_targets],
     )
+    accel.print(f"LoRA targets: {args.lora_targets}")
     transformer.add_adapter(lora_cfg)
 
     lora_params = []

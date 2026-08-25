@@ -1,0 +1,13 @@
+# data / weights / outputs (never commit)
+train_data/
+ckpt/
+omnisvg_repro/
+*.log
+*.zip
+*.safetensors
+*.pt
+*.npz
+wandb/
+__pycache__/
+*.pyc
+.cache/

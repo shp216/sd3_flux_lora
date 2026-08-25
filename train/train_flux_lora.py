@@ -149,6 +149,12 @@ def parse_args():
     p.add_argument("--save_every", type=int, default=1000)
     p.add_argument("--log_every", type=int, default=10)
     p.add_argument("--resume_from", type=str, default=None)
+    p.add_argument("--init_lora", type=str, default=None,
+                   help="LoRA safetensors to load as initialization (weights only, "
+                        "fresh optimizer) -- e.g. to restart from an earlier best "
+                        "checkpoint whose resume_state.pt was overwritten")
+    p.add_argument("--start_step", type=int, default=0,
+                   help="global step to count from when using --init_lora")
 
     # wandb + eval (MMSVGBench text2svg: FID / CLIP / Aesthetic / HPS + grids)
     p.add_argument("--use_wandb", action="store_true", default=False)
@@ -506,6 +512,13 @@ def main():
         global_step = load_checkpoint(
             accel, transformer, optimizer, lr_sched, args.resume_from,
         )
+    elif args.init_lora:
+        raw = load_file(args.init_lora)
+        cleaned = {k.removeprefix("transformer."): v for k, v in raw.items()}
+        set_peft_model_state_dict(accel.unwrap_model(transformer), cleaned)
+        global_step = int(args.start_step)
+        accel.print(f"[init_lora] loaded {args.init_lora}; counting from step {global_step} "
+                    "(fresh optimizer / LR schedule)")
 
     last_eval_step = -1
     if args.eval_every > 0 and args.eval_on_start and global_step == 0:

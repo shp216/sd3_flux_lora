@@ -216,6 +216,10 @@ LORA_TARGETS = {
     # proj_mlp/proj_out, and AdaLN modulation linears). 494 layers.
     "all-linear": _BLK + r"(" + _ATTN + r"|" + _FF
                   + r"|proj_mlp|proj_out|norm1\.linear|norm1_context\.linear|norm\.linear)",
+    # every attention + feed-forward projection in all blocks (image & text
+    # streams; single-block MLP = proj_mlp/proj_out), NO AdaLN modulation.
+    # Same placement as the SD3.5 "attn-ffn" runs -> one description in the paper.
+    "attn-ffn": _BLK + r"(" + _ATTN + r"|" + _FF + r"|proj_mlp|proj_out)",
 }
 
 

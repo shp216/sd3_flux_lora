@@ -84,6 +84,8 @@ LORA_TARGETS = {
     # kohya-style: every Linear inside the blocks (attn, attn2, FFN, AdaLN modulation)
     "all-linear": _BLK + r"(" + _ATTN
                   + r"|ff\.net\.(0\.proj|2)|ff_context\.net\.(0\.proj|2)|norm1\.linear|norm1_context\.linear)",
+    # attention (incl. attn2) + feed-forward, NO modulation -- shared paper placement
+    "attn-ffn": _BLK + r"(" + _ATTN + r"|ff\.net\.(0\.proj|2)|ff_context\.net\.(0\.proj|2))",
 }
 
 

@@ -9,7 +9,7 @@ cd "$(dirname "$0")"
 ROOT="${ROOT:-$(cd .. && pwd)}"
 NPROC="${NPROC:-8}"; GPUS="${GPUS:-0,1,2,3,4,5,6,7}"; PORT="${PORT:-29601}"
 BATCH="${BATCH:-8}"; ACCUM="${ACCUM:-1}"; RANK="${RANK:-128}"; LR="${LR:-1e-4}"
-STEPS="${STEPS:-15000}"; TRIGGER="${TRIGGER:-<vector>}"
+STEPS="${STEPS:-15000}"; TRIGGER="${TRIGGER:-<vector>}"; TARGETS="${TARGETS:-attn-ffn}"
 RUN="${RUN:-run-sd3-rank$RANK}"; OUT="$ROOT/ckpt/$RUN"
 RESUME_ARGS=""; [[ -n "${RESUME:-}" ]] && RESUME_ARGS="--resume_from $RESUME"
 

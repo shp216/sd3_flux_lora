@@ -25,7 +25,7 @@ accelerate launch --num_processes $NPROC --mixed_precision bf16 --main_process_p
     --fid_ref_dir   $ROOT/train_data/fid_ref_white \
     --resolution 1024 --batch_size $BATCH --gradient_accumulation_steps $ACCUM --num_workers 8 \
     --learning_rate $LR --max_train_steps $STEPS \
-    --lora_rank $RANK --lora_alpha $RANK --t5_seq_len 77 --mixed_precision bf16 \
+    --lora_rank $RANK --lora_alpha $RANK --lora_targets $TARGETS --t5_seq_len 77 --mixed_precision bf16 \
     --save_every 500 --log_every 20 \
     --eval_every 500 --eval_on_start --eval_trigger "$TRIGGER" \
     --eval_resolution 1024 --eval_inference_steps 28 --eval_guidance_scale $EVAL_GUIDANCE \

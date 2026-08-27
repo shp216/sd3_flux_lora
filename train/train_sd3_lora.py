@@ -217,7 +217,8 @@ def make_grid(images, rows, cols, cell=256):
     return grid
 
 
-def run_bench_eval(accel, pipe, bench, evaluator, fid_ref, step, args, out_dir):
+def run_bench_eval(accel, pipe, bench, evaluator, fid_ref, step, args, out_dir,
+                   weight_dtype=torch.bfloat16):
     """All ranks generate their slice with the SD3 pipeline (LoRA-attached
     transformer); main process scores + logs. Same protocol as FLUX."""
     unwrapped = pipe.transformer
@@ -233,12 +234,15 @@ def run_bench_eval(accel, pipe, bench, evaluator, fid_ref, step, args, out_dir):
         t0 = time.time()
         for k, idx in enumerate(my):
             g = torch.Generator(device=accel.device).manual_seed(idx)
-            img = pipe(gen_prompts[idx], height=args.eval_resolution,
-                       width=args.eval_resolution,
-                       num_inference_steps=args.eval_inference_steps,
-                       guidance_scale=args.eval_guidance_scale,
-                       max_sequence_length=args.t5_seq_len,
-                       generator=g).images[0]
+            # autocast: fp32 LoRA layers promote the transformer output to
+            # fp32, and the SD3 pipeline feeds that straight into the bf16 VAE
+            with torch.autocast("cuda", dtype=weight_dtype):
+                img = pipe(gen_prompts[idx], height=args.eval_resolution,
+                           width=args.eval_resolution,
+                           num_inference_steps=args.eval_inference_steps,
+                           guidance_scale=args.eval_guidance_scale,
+                           max_sequence_length=args.t5_seq_len,
+                           generator=g).images[0]
             img.save(gen_dir / f"{idx:03d}.png")
             if accel.is_main_process and (k + 1) % 10 == 0:
                 print(f"[eval] step {step}: ~{(k+1)*accel.num_processes}/{len(texts)} "
@@ -402,7 +406,7 @@ def main():
     if args.eval_every > 0 and args.eval_on_start and global_step == 0:
         accel.print("[eval] step 0: evaluating base model before training ...")
         accel.wait_for_everyone()
-        run_bench_eval(accel, pipe, bench, evaluator, fid_ref, 0, args, out_dir)
+        run_bench_eval(accel, pipe, bench, evaluator, fid_ref, 0, args, out_dir, weight_dtype)
         last_eval_step = 0
 
     progress = tqdm(total=args.max_train_steps, disable=not accel.is_main_process,
@@ -489,7 +493,7 @@ def main():
                 if args.eval_every > 0 and global_step % args.eval_every == 0:
                     accel.wait_for_everyone()
                     run_bench_eval(accel, pipe, bench, evaluator, fid_ref,
-                                   global_step, args, out_dir)
+                                   global_step, args, out_dir, weight_dtype)
                     last_eval_step = global_step
 
                 if global_step >= args.max_train_steps:
@@ -506,7 +510,7 @@ def main():
             if args.eval_every > 0 and global_step != last_eval_step:
                 accel.wait_for_everyone()
                 run_bench_eval(accel, pipe, bench, evaluator, fid_ref,
-                               global_step, args, out_dir)
+                               global_step, args, out_dir, weight_dtype)
                 last_eval_step = global_step
 
     if accel.is_main_process:

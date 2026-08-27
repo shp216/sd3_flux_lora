@@ -10,6 +10,7 @@ ROOT="${ROOT:-$(cd .. && pwd)}"
 NPROC="${NPROC:-8}"; GPUS="${GPUS:-0,1,2,3,4,5,6,7}"; PORT="${PORT:-29601}"
 BATCH="${BATCH:-8}"; ACCUM="${ACCUM:-1}"; RANK="${RANK:-128}"; LR="${LR:-1e-4}"
 STEPS="${STEPS:-15000}"; TRIGGER="${TRIGGER:-<vector>}"; TARGETS="${TARGETS:-attn-ffn}"
+MANIFEST="${MANIFEST:-$ROOT/train_data/manifest.jsonl}"
 RUN="${RUN:-run-flux-rank$RANK}"; OUT="$ROOT/ckpt/$RUN"
 RESUME_ARGS=""; [[ -n "${RESUME:-}" ]] && RESUME_ARGS="--resume_from $RESUME"
 
@@ -17,7 +18,7 @@ CUDA_VISIBLE_DEVICES=$GPUS PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 accelerate launch --num_processes $NPROC --mixed_precision bf16 --main_process_port $PORT \
   train_flux_lora.py \
     --pretrained_model black-forest-labs/FLUX.1-dev \
-    --manifest      $ROOT/train_data/manifest.jsonl \
+    --manifest      $MANIFEST \
     --output_dir    $OUT \
     --bench_parquet $ROOT/train_data/raw/MMSVGBench/data/text2svg-00000-of-00001.parquet \
     --fid_ref_dir   $ROOT/train_data/fid_ref_white \
